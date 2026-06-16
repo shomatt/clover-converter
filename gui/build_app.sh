@@ -37,9 +37,17 @@ echo "    -> gui/dist/clover-batch/ (universal2)"
 echo "==> 2/3  compile AppleScript droplet"
 osacompile -o "$APP" gui/droplet.applescript
 
-echo "==> 3/3  embed the binary inside the .app"
+echo "==> 3/4  embed the binary inside the .app"
 mkdir -p "$APP/Contents/Resources/bin"
 cp -R gui/dist/clover-batch "$APP/Contents/Resources/bin/"
+
+echo "==> 4/4  re-sign the whole bundle (seal it AFTER embedding)"
+# osacompile signed the .app, but we modified it by adding the binary above —
+# that breaks the seal and macOS shows "is damaged" on download. Re-sign the
+# complete bundle so the seal is valid (ad-hoc; friends then get the normal
+# "unidentified developer → right-click Open" flow instead of "damaged").
+codesign --force --deep --sign - "$APP"
+codesign --verify --deep --strict "$APP" && echo "    署名OK（シール正常）"
 
 echo "==> built: $APP"
 echo "    Finder で .clvz / .musicxml をアイコンにドラッグ&ドロップ。"
