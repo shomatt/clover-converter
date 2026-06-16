@@ -1,0 +1,17 @@
+[project]
+name = "clover2xml"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = ["defusedxml>=0.7"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+clover2xml = "clover2xml.cli:main"
+xml2clover = "clover2xml.cli_import:main"
+cloverconv = "clover2xml.cli_convert:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

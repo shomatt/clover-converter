@@ -1,0 +1,62 @@
+name: Build native apps (macOS universal + Windows)
+
+# Builds the drag-and-drop converter for:
+#   - macOS  : universal2 (.app, Intel + Apple Silicon)
+#   - Windows: single .exe (drop files onto the icon)
+# Run from the Actions tab (workflow_dispatch) or by pushing a tag v*.
+# Artifacts appear under the workflow run.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  macos:
+    runs-on: macos-14            # Apple Silicon runner; python is universal2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -m pip install ./clover2xml defusedxml
+      - name: Build universal2 .app
+        env:
+          PYI: pyinstaller
+        run: bash gui/build_app.sh
+      - name: Zip .app
+        run: |
+          cd gui/dist
+          ditto -c -k --sequesterRsrc --keepParent "Clover変換.app" "Clover変換-mac.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Clover変換-macOS-universal
+          path: gui/dist/Clover変換-mac.zip
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -m pip install ./clover2xml defusedxml
+      - name: Build .exe (drag-and-drop droplet)
+        run: >
+          pyinstaller --noconfirm --clean --windowed --onefile
+          --name "Clover変換"
+          --paths clover2xml --paths gui
+          --collect-submodules clover2xml
+          --collect-all defusedxml
+          --distpath gui/dist-win --workpath gui/build-win --specpath gui
+          gui/win_droplet.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Clover変換-Windows
+          path: gui/dist-win/Clover変換.exe

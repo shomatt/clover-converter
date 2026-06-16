@@ -1,0 +1,14 @@
+[project]
+name = "clover-midi"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = ["python-rtmidi>=1.5", "clover2xml"]
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+[project.scripts]
+midi2clover = "clover_midi.cli:main"
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+[tool.setuptools.packages.find]
+include = ["clover_midi*"]

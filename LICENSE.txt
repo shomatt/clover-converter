@@ -1,0 +1,10 @@
+Clover ⇄ MusicXML 変換ツール
+Copyright (c) 2026 Shoma
+
+変換コードは作者によるオリジナル実装です。
+
+※ 公開時に配布ライセンス（MIT / Apache-2.0 等）を選択し、本ファイルを差し替えてください。
+   未選択のまま公開する場合、既定では全権利が留保されます（All rights reserved）。
+
+本パッケージには Clover Chord Systems 本体および Clover 由来の素材（SVG・フォント）は
+含まれません。変換対象となる楽曲データの権利は各権利者に帰属します。

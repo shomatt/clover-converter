@@ -1,0 +1,13 @@
+# build outputs / caches / venvs — never committed
+**/.venv/
+**/__pycache__/
+*.pyc
+**/*.egg-info/
+**/.pytest_cache/
+gui/dist/
+gui/build/
+gui/dist-win/
+gui/build-win/
+gui/*.spec
+dist/
+build/
