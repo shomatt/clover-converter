@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clover ⇄ MusicXML 変換ツール</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>Clover ⇄ MusicXML 変換ツール</h1>
+    <p class="sub">Clover Chord Systems の <code>.clvz</code> と MusicXML を双方向変換します。</p>
+  </header>
+
+  <section class="privacy">
+    🔒 <strong>ファイルはアップロードされません。</strong>
+    変換はすべてあなたのブラウザ内で完結します（サーバー送信なし）。
+    変換ロジックはルールベースの決定的処理で、楽曲データは一切含みません。
+  </section>
+
+  <div class="target-row">
+    <label for="targetSel">変換先：</label>
+    <select id="targetSel">
+      <option value="musicxml">MusicXML（.musicxml）</option>
+      <option value="clvz">Clover（.clvz）</option>
+      <option value="mid">MIDI（.mid）</option>
+    </select>
+    <span class="dim">入力は拡張子で自動判定（.clvz / .musicxml / .mid）</span>
+  </div>
+
+  <section id="dropzone" class="dropzone">
+    <p class="dz-main">ここに <code>.clvz</code> / <code>.musicxml</code> / <code>.mid</code> ファイルをドロップ</p>
+    <p class="dz-sub">またはクリックして選択（複数可・一括変換対応）</p>
+    <input type="file" id="fileInput" multiple
+           accept=".clvz,.musicxml,.xml,.mid,.midi" hidden>
+  </section>
+
+  <div class="actions">
+    <button id="sampleBtn" class="ghost" disabled>サンプルを試す</button>
+    <button id="zipBtn" class="ghost" hidden>すべて ZIP でダウンロード</button>
+  </div>
+
+  <div id="status" class="status">読み込み中… (初回はPython実行環境を準備します)</div>
+
+  <ul id="results" class="results"></ul>
+
+  <footer>
+    <p>方向は拡張子で自動判定： <code>.clvz → .musicxml</code> ／ <code>.musicxml/.xml → .clvz</code></p>
+    <p class="dim">完全オフラインで使うには Pyodide を同梱・自己ホストしてください。</p>
+  </footer>
+</main>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
