@@ -138,13 +138,22 @@ def _emit_barline_with_ending(measure, value, location, ending_num=None, ending_
     if ending_num is not None:
         _sub(bl, "ending", number=ending_num, type=ending_type)
 
-def _add_note(measure: ET.Element, ev: RhythmEvent, key_fifths) -> None:
+def _sub_duration_ties(n: ET.Element, ev: RhythmEvent, tie_stop: bool) -> None:
+    """<duration> then <tie>s (MusicXML requires ties right after duration).
+    Clover flags the tie on its first note; the next note gets the stop."""
+    _sub(n, "duration", _duration_ticks(ev.duration))
+    if tie_stop:
+        _sub(n, "tie", type="stop")
+    if ev.tie:
+        _sub(n, "tie", type="start")
+
+def _add_note(measure: ET.Element, ev: RhythmEvent, key_fifths, tie_stop=False) -> None:
     n = _sub(measure, "note")
     # type/duration: for tuplet members the DISPLAYED note value is duration*3/2
     disp = ev.duration * Fraction(3, 2) if ev.tuplet else ev.duration
     if ev.kind == "rest":
         _sub(n, "rest")
-        _sub(n, "duration", _duration_ticks(ev.duration))
+        _sub_duration_ties(n, ev, tie_stop)
         _sub_type(n, disp)
     elif ev.kind == "pitch":
         step, octave, alter = _level_to_pitch(ev.level or 0, key_fifths)
@@ -153,13 +162,13 @@ def _add_note(measure: ET.Element, ev: RhythmEvent, key_fifths) -> None:
         if alter:
             _sub(p, "alter", alter)
         _sub(p, "octave", octave)
-        _sub(n, "duration", _duration_ticks(ev.duration))
+        _sub_duration_ties(n, ev, tie_stop)
         _sub_type(n, disp)
     else:  # slash
         unp = _sub(n, "unpitched")
         _sub(unp, "display-step", "B")
         _sub(unp, "display-octave", "4")
-        _sub(n, "duration", _duration_ticks(ev.duration))
+        _sub_duration_ties(n, ev, tie_stop)
         _sub_type(n, disp)
         _sub(n, "notehead", "slash")
     if ev.tuplet:
@@ -168,10 +177,12 @@ def _add_note(measure: ET.Element, ev: RhythmEvent, key_fifths) -> None:
         _sub(tm, "normal-notes", 2)
     if ev.beam in ("begin", "continue", "end"):
         _sub(n, "beam", ev.beam, number="1")
-    if ev.tie:
-        _sub(n, "tie", type="start")
-    if ev.slur or ev.tuplet or ev.articulations:
+    if ev.slur or ev.tuplet or ev.articulations or ev.tie or tie_stop:
         notations = _sub(n, "notations")
+        if tie_stop:
+            _sub(notations, "tied", type="stop")
+        if ev.tie:
+            _sub(notations, "tied", type="start")
         if ev.tuplet == "begin":
             _sub(notations, "tuplet", type="start")
         elif ev.tuplet == "end":
@@ -196,6 +207,7 @@ def build_musicxml(score: Score) -> str:
     part = _sub(root, "part", id="P1")
     active_time = (4, 4)
     active_key = None
+    tie_open = False      # previous note started a tie → next note stops it
     for mi, mm in enumerate(score.parts[0].measures):
         if mm.time is not None:
             active_time = mm.time
@@ -252,7 +264,8 @@ def build_musicxml(score: Score) -> str:
             for ev in mm.events:
                 while ci < len(chords) and chords[ci].offset <= pos:
                     _add_harmony(meas, chords[ci]); ci += 1
-                _add_note(meas, ev, active_key)
+                _add_note(meas, ev, active_key, tie_stop=tie_open and ev.kind != "rest")
+                tie_open = ev.tie
                 pos += int(ev.duration * TICKS_PER_WHOLE)
             remaining = chords[ci:]
             if remaining and pos < bar_ticks:
@@ -271,10 +284,12 @@ def build_musicxml(score: Score) -> str:
                     for c in by_off.get(start, []):
                         _add_harmony(meas, c)
                     _emit_slash(meas, Fraction(seg, TICKS_PER_WHOLE))
+                    tie_open = False
             else:
                 for c in remaining:
                     _add_harmony(meas, c)
         elif chords:
+            tie_open = False
             offsets = sorted({int(c.offset) for c in chords})
             if not offsets or offsets[0] != 0:
                 offsets = [0] + offsets
@@ -291,6 +306,7 @@ def build_musicxml(score: Score) -> str:
                     _add_harmony(meas, c)
                 _emit_hidden_rest(meas, Fraction(seg, TICKS_PER_WHOLE), full=single)
         else:
+            tie_open = False
             _emit_hidden_rest(meas, Fraction(bar_ticks, TICKS_PER_WHOLE), full=True)
 
         # 4) right barline + ending stop

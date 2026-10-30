@@ -274,6 +274,27 @@ def test_tie_chain_within_measure(clvz):
         [["start"], ["start", "stop"], ["stop"]]
 
 
+def test_tie_element_order_follows_duration(clvz):
+    # MusicXML の <note> 内の順序: (pitch|unpitched|rest), duration, tie*, ..., type, dot*, ..., beam*, notations
+    root = convert(clvz, [measure(notes=[note(480, "pitch", 0, extra="<tie />",
+                                              attrs='beam="begin"').replace('beam="none" ', ""),
+                                         note(480, "pitch", 0, attrs='beam="end"')
+                                         .replace('beam="none" ', "")])])
+    for n in sounding_notes(measures_of(root)[0]):
+        tags = [c.tag for c in n]
+        i = tags.index("duration")
+        ties = [t for t in tags if t == "tie"]
+        assert tags[i + 1:i + 1 + len(ties)] == ties == ["tie"]
+        assert tags.index("tie") < tags.index("type") < tags.index("beam")
+
+
+def test_tie_into_rest_is_not_stopped_on_rest(clvz):
+    root = convert(clvz, [measure(notes=[note(480, "pitch", 0, extra="<tie />"),
+                                         note(480, "rest")])])
+    a, b = sounding_notes(measures_of(root)[0])
+    assert b.findall("tie") == [] and b.find("./notations/tied") is None
+
+
 def test_empty_measure_is_hidden_full_rest(clvz):
     root = convert(clvz, [measure(time_sig="time-3_4")])
     (n,) = measures_of(root)[0].findall("note")
