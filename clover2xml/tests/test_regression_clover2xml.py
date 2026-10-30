@@ -15,7 +15,7 @@ import pytest
 
 from clover2xml.cli import main as cli_main
 from clover2xml.reader import parse_score
-from clover2xml.writer import build_musicxml, DIVISIONS
+from clover2xml.writer import build_musicxml, DIVISIONS, TieWarning
 
 QUARTER = 240           # Clover ティック（全音符 = 960）
 WHOLE = 960
@@ -293,6 +293,73 @@ def test_tie_into_rest_is_not_stopped_on_rest(clvz):
                                          note(480, "rest")])])
     a, b = sounding_notes(measures_of(root)[0])
     assert b.findall("tie") == [] and b.find("./notations/tied") is None
+
+
+
+def _no_tie(n):
+    return n.findall("tie") == [] and n.find("./notations/tied") is None
+
+
+def test_tie_to_different_pitch_is_dropped_with_warning(clvz):
+    # 半音符 B4（level 0）・tie → 半音符 C5（level 1）: 高さが違うのでタイにしない
+    with pytest.warns(TieWarning):
+        root = convert(clvz, [measure(notes=[note(480, "pitch", 0, extra="<tie />"),
+                                             note(480, "pitch", 1)])])
+    a, b = sounding_notes(measures_of(root)[0])
+    assert _no_tie(a) and _no_tie(b)
+
+
+def test_tie_to_different_pitch_across_barline_is_dropped(clvz):
+    with pytest.warns(TieWarning):
+        root = convert(clvz, [measure(notes=[note(WHOLE, "pitch", 0, extra="<tie />")]),
+                              measure(notes=[note(WHOLE, "pitch", 1)])])
+    (a,), (b,) = [sounding_notes(m) for m in measures_of(root)]
+    assert _no_tie(a) and _no_tie(b)
+
+
+def test_tie_from_rest_is_dropped_with_warning(clvz):
+    # 休符・tie → B4: 休符にタイは付けない、B4 にも stop を付けない
+    with pytest.warns(TieWarning):
+        root = convert(clvz, [measure(notes=[note(480, "rest", extra="<tie />"),
+                                             note(480, "pitch", 0)])])
+    a, b = sounding_notes(measures_of(root)[0])
+    assert _no_tie(a) and _no_tie(b)
+
+
+def test_tie_into_rest_drops_start_with_warning(clvz):
+    with pytest.warns(TieWarning):
+        root = convert(clvz, [measure(notes=[note(480, "pitch", 0, extra="<tie />"),
+                                             note(480, "rest")])])
+    a, b = sounding_notes(measures_of(root)[0])
+    assert _no_tie(a) and _no_tie(b)
+
+
+def test_tie_without_following_note_is_dropped(clvz):
+    # 曲の最後の音のタイ、および次の小節が空（音符なし）の場合
+    with pytest.warns(TieWarning):
+        root = convert(clvz, [measure(notes=[note(WHOLE, "pitch", 0, extra="<tie />")])])
+    assert _no_tie(sounding_notes(measures_of(root)[0])[0])
+    with pytest.warns(TieWarning):
+        root = convert(clvz, [measure(notes=[note(WHOLE, "pitch", 0, extra="<tie />")]),
+                              measure(chords=[chord("C")])])
+    assert _no_tie(sounding_notes(measures_of(root)[0])[0])
+
+
+def test_tie_pitch_compared_after_key_signature(clvz):
+    # 同じ level でも調号で F と F# になる場合は別の高さ（level -3 = F4）
+    with pytest.warns(TieWarning):
+        root = convert(clvz, [measure(notes=[note(WHOLE, "pitch", -3, extra="<tie />")]),
+                              measure(notes=[note(WHOLE, "pitch", -3)], key="key-sharp1")])
+    (a,), (b,) = [sounding_notes(m) for m in measures_of(root)]
+    assert _no_tie(a) and _no_tie(b)
+
+
+def test_valid_ties_do_not_warn(clvz, recwarn):
+    convert(clvz, [measure(notes=[note(480, "pitch", 2, extra="<tie />"),
+                                  note(480, "pitch", 2)]),
+                   measure(notes=[note(480, "slash", extra="<tie />"),
+                                  note(480, "slash")])])
+    assert not [w for w in recwarn if issubclass(w.category, TieWarning)]
 
 
 def test_empty_measure_is_hidden_full_rest(clvz):

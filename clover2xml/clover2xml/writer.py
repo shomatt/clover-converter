@@ -1,4 +1,5 @@
 from __future__ import annotations
+import warnings
 from fractions import Fraction
 from xml.etree import ElementTree as ET
 from clover2xml.model import Score, ChordSym, RhythmEvent
@@ -8,6 +9,12 @@ TICKS_PER_WHOLE = 960    # Clover internal ticks per whole note
 CLEF_LINE = {"G": "2", "F": "4"}
 _ART = {"staccato": "staccato", "accent": "accent", "tenuto": "tenuto",
         "marcato": "strong-accent"}
+
+
+class TieWarning(UserWarning):
+    """Clover のタイの相手が無い・高さが違う時の警告（タイは付けずに続行）。"""
+
+
 _STEPS = "CDEFGAB"
 _SHARP_ORDER = "FCGDAEB"
 _FLAT_ORDER = "BEADGCF"
@@ -138,22 +145,46 @@ def _emit_barline_with_ending(measure, value, location, ending_num=None, ending_
     if ending_num is not None:
         _sub(bl, "ending", number=ending_num, type=ending_type)
 
-def _sub_duration_ties(n: ET.Element, ev: RhythmEvent, tie_stop: bool) -> None:
+def _sub_duration_ties(n: ET.Element, ev: RhythmEvent, tie_stop: bool, tie_start: bool) -> None:
     """<duration> then <tie>s (MusicXML requires ties right after duration).
     Clover flags the tie on its first note; the next note gets the stop."""
     _sub(n, "duration", _duration_ticks(ev.duration))
     if tie_stop:
         _sub(n, "tie", type="stop")
-    if ev.tie:
+    if tie_start:
         _sub(n, "tie", type="start")
 
-def _add_note(measure: ET.Element, ev: RhythmEvent, key_fifths, tie_stop=False) -> None:
+def _tie_key(ev: RhythmEvent, key_fifths):
+    """What a tie must match: the sounding pitch, "slash" for slashes, None for rests."""
+    if ev.kind == "pitch":
+        return _level_to_pitch(ev.level or 0, key_fifths)
+    if ev.kind == "slash":
+        return "slash"
+    return None
+
+def _drop_tie_start(n: ET.Element) -> None:
+    """Remove a tie start (and its <tied>) whose partner turned out to be invalid."""
+    for t in n.findall("tie"):
+        if t.get("type") == "start":
+            n.remove(t)
+    notations = n.find("notations")
+    if notations is not None:
+        for t in notations.findall("tied"):
+            if t.get("type") == "start":
+                notations.remove(t)
+        if not len(notations):
+            n.remove(notations)
+
+def _add_note(measure: ET.Element, ev: RhythmEvent, key_fifths, tie_stop=False,
+              tie_start=None) -> ET.Element:
+    if tie_start is None:
+        tie_start = ev.tie and ev.kind != "rest"
     n = _sub(measure, "note")
     # type/duration: for tuplet members the DISPLAYED note value is duration*3/2
     disp = ev.duration * Fraction(3, 2) if ev.tuplet else ev.duration
     if ev.kind == "rest":
         _sub(n, "rest")
-        _sub_duration_ties(n, ev, tie_stop)
+        _sub_duration_ties(n, ev, tie_stop, tie_start)
         _sub_type(n, disp)
     elif ev.kind == "pitch":
         step, octave, alter = _level_to_pitch(ev.level or 0, key_fifths)
@@ -162,13 +193,13 @@ def _add_note(measure: ET.Element, ev: RhythmEvent, key_fifths, tie_stop=False) 
         if alter:
             _sub(p, "alter", alter)
         _sub(p, "octave", octave)
-        _sub_duration_ties(n, ev, tie_stop)
+        _sub_duration_ties(n, ev, tie_stop, tie_start)
         _sub_type(n, disp)
     else:  # slash
         unp = _sub(n, "unpitched")
         _sub(unp, "display-step", "B")
         _sub(unp, "display-octave", "4")
-        _sub_duration_ties(n, ev, tie_stop)
+        _sub_duration_ties(n, ev, tie_stop, tie_start)
         _sub_type(n, disp)
         _sub(n, "notehead", "slash")
     if ev.tuplet:
@@ -177,11 +208,11 @@ def _add_note(measure: ET.Element, ev: RhythmEvent, key_fifths, tie_stop=False) 
         _sub(tm, "normal-notes", 2)
     if ev.beam in ("begin", "continue", "end"):
         _sub(n, "beam", ev.beam, number="1")
-    if ev.slur or ev.tuplet or ev.articulations or ev.tie or tie_stop:
+    if ev.slur or ev.tuplet or ev.articulations or tie_start or tie_stop:
         notations = _sub(n, "notations")
         if tie_stop:
             _sub(notations, "tied", type="stop")
-        if ev.tie:
+        if tie_start:
             _sub(notations, "tied", type="start")
         if ev.tuplet == "begin":
             _sub(notations, "tuplet", type="start")
@@ -196,6 +227,7 @@ def _add_note(measure: ET.Element, ev: RhythmEvent, key_fifths, tie_stop=False) 
             ael = _sub(notations, "articulations")
             for a in arts:
                 _sub(ael, _ART[a])
+    return n
 
 def build_musicxml(score: Score) -> str:
     root = ET.Element("score-partwise", {"version": "4.0"})
@@ -207,7 +239,17 @@ def build_musicxml(score: Score) -> str:
     part = _sub(root, "part", id="P1")
     active_time = (4, 4)
     active_key = None
-    tie_open = False      # previous note started a tie → next note stops it
+    # (note element, tie key, measure number) of a note whose tie start still
+    # awaits its partner; the next note stops it only if the pitch matches.
+    pending = None
+
+    def break_tie(reason):
+        nonlocal pending
+        if pending is not None:
+            _drop_tie_start(pending[0])
+            warnings.warn(f"measure {pending[2]}: tie dropped ({reason})",
+                          TieWarning, stacklevel=3)
+            pending = None
     for mi, mm in enumerate(score.parts[0].measures):
         if mm.time is not None:
             active_time = mm.time
@@ -264,8 +306,17 @@ def build_musicxml(score: Score) -> str:
             for ev in mm.events:
                 while ci < len(chords) and chords[ci].offset <= pos:
                     _add_harmony(meas, chords[ci]); ci += 1
-                _add_note(meas, ev, active_key, tie_stop=tie_open and ev.kind != "rest")
-                tie_open = ev.tie
+                tk = _tie_key(ev, active_key)
+                stop = pending is not None and tk == pending[1]
+                if pending is not None and not stop:
+                    break_tie("next note is a rest" if tk is None
+                              else "next note has a different pitch")
+                if ev.tie and tk is None:
+                    warnings.warn(f"measure {mi + 1}: tie on a rest dropped",
+                                  TieWarning, stacklevel=2)
+                start = ev.tie and tk is not None
+                n = _add_note(meas, ev, active_key, tie_stop=stop, tie_start=start)
+                pending = (n, tk, mi + 1) if start else None
                 pos += int(ev.duration * TICKS_PER_WHOLE)
             remaining = chords[ci:]
             if remaining and pos < bar_ticks:
@@ -283,13 +334,13 @@ def build_musicxml(score: Score) -> str:
                         continue
                     for c in by_off.get(start, []):
                         _add_harmony(meas, c)
+                    break_tie("no following note")
                     _emit_slash(meas, Fraction(seg, TICKS_PER_WHOLE))
-                    tie_open = False
             else:
                 for c in remaining:
                     _add_harmony(meas, c)
         elif chords:
-            tie_open = False
+            break_tie("no following note")
             offsets = sorted({int(c.offset) for c in chords})
             if not offsets or offsets[0] != 0:
                 offsets = [0] + offsets
@@ -306,12 +357,13 @@ def build_musicxml(score: Score) -> str:
                     _add_harmony(meas, c)
                 _emit_hidden_rest(meas, Fraction(seg, TICKS_PER_WHOLE), full=single)
         else:
-            tie_open = False
+            break_tie("no following note")
             _emit_hidden_rest(meas, Fraction(bar_ticks, TICKS_PER_WHOLE), full=True)
 
         # 4) right barline + ending stop
         _emit_barline_with_ending(meas, mm.barline_right, "right",
                                   mm.ending_stop, "stop" if mm.ending_stop else None)
+    break_tie("no following note")
     ET.indent(root)
     body = ET.tostring(root, encoding="unicode")
     doctype = ('<!DOCTYPE score-partwise PUBLIC '
