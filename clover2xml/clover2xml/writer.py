@@ -42,6 +42,21 @@ def _type_name(frac: Fraction) -> str:
     best = min(_TYPES, key=lambda t: abs(float(t[0]) - float(frac)))
     return best[1]
 
+def _type_and_dots(frac: Fraction):
+    """(type, dots) for a note value; dotted values (3/8, 7/16 ...) get <dot/>s."""
+    for base, name in _TYPES:
+        for dots in range(4):
+            if base * (2 - Fraction(1, 2 ** dots)) == frac:
+                return name, dots
+    return _type_name(frac), 0
+
+def _sub_type(n: ET.Element, frac: Fraction) -> None:
+    """Emit <type> followed by any <dot/>s."""
+    name, dots = _type_and_dots(frac)
+    _sub(n, "type", name)
+    for _ in range(dots):
+        _sub(n, "dot")
+
 def _root_step_alter(root: str):
     step = root[0]
     alter = root.count("#") - root.count("b")
@@ -82,7 +97,7 @@ def _emit_slash(measure: ET.Element, frac: Fraction) -> ET.Element:
     _sub(unp, "display-step", "B")
     _sub(unp, "display-octave", "4")
     _sub(n, "duration", _duration_ticks(frac))
-    _sub(n, "type", _type_name(frac))
+    _sub_type(n, frac)
     _sub(n, "notehead", "slash")
     return n
 
@@ -103,7 +118,7 @@ def _emit_hidden_rest(measure, frac, full=False):
         _sub(n, "rest")
     _sub(n, "duration", _duration_ticks(frac))
     if not full:
-        _sub(n, "type", _type_name(frac))
+        _sub_type(n, frac)
 
 
 _BARSTYLE = {"light-light": "light-light", "repeat-end": "light-heavy",
@@ -130,7 +145,7 @@ def _add_note(measure: ET.Element, ev: RhythmEvent, key_fifths) -> None:
     if ev.kind == "rest":
         _sub(n, "rest")
         _sub(n, "duration", _duration_ticks(ev.duration))
-        _sub(n, "type", _type_name(disp))
+        _sub_type(n, disp)
     elif ev.kind == "pitch":
         step, octave, alter = _level_to_pitch(ev.level or 0, key_fifths)
         p = _sub(n, "pitch")
@@ -139,13 +154,13 @@ def _add_note(measure: ET.Element, ev: RhythmEvent, key_fifths) -> None:
             _sub(p, "alter", alter)
         _sub(p, "octave", octave)
         _sub(n, "duration", _duration_ticks(ev.duration))
-        _sub(n, "type", _type_name(disp))
+        _sub_type(n, disp)
     else:  # slash
         unp = _sub(n, "unpitched")
         _sub(unp, "display-step", "B")
         _sub(unp, "display-octave", "4")
         _sub(n, "duration", _duration_ticks(ev.duration))
-        _sub(n, "type", _type_name(disp))
+        _sub_type(n, disp)
         _sub(n, "notehead", "slash")
     if ev.tuplet:
         tm = _sub(n, "time-modification")
